@@ -71,8 +71,8 @@ transforms = v2.Compose(
 )
 
 # train on the GPU or on the CPU, if a GPU is not available
-#device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-device = torch.device('cpu')
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+# device = torch.device('cpu')
 
 # our dataset has one class only - buildling
 num_classes = 101
@@ -83,7 +83,7 @@ dataset = datasets.CocoDetection(
     transforms=transforms
     #get_transform(train=True)
 )
-dataset = datasets.wrap_dataset_for_transforms_v2(dataset, target_keys=("boxes", "labels", "masks",))
+dataset = datasets.wrap_dataset_for_transforms_v2(dataset, target_keys=("boxes", "labels", "masks","image_id"))
 img, target = dataset[0]
 #print(target['labels'])
 
@@ -93,7 +93,7 @@ dataset_test = datasets.CocoDetection(
     transforms=transforms
     #get_transform(train=False)
 )
-dataset_test = datasets.wrap_dataset_for_transforms_v2(dataset_test, target_keys=("boxes", "labels", "masks",))
+dataset_test = datasets.wrap_dataset_for_transforms_v2(dataset_test, target_keys=("boxes", "labels", "masks","image_id"))
 #
 
 # # split the dataset in train and test set
@@ -199,7 +199,7 @@ num_epochs = 5
 epochs = 5
 for t in range(epochs):
     print(f"Epoch {t+1}\n-------------------------------")
-    train(data_loader, model, optimizer)
+    #train(data_loader, model, optimizer)
     #test(data_loader_test, model)
     evaluate(model, data_loader_test, device=device)
 

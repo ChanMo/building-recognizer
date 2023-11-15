@@ -13,6 +13,34 @@
 建筑物识别器是一项具有重要应用价值的技术。随着卫星图像和航拍图像技术的不断发展，建筑物识别器将在未来得到更加广泛的应用。
 
 
+## 模型选择
+
+模型使用的是Mask-RCNN
+```
+model = torchvision.models.detection.maskrcnn_resnet50_fpn()
+
+```
+
+## 数据集
+
+数据集使用的是CrowdAI的MappingChallenge中的数据集, 此数据集使用和COCO相同的格式, 可以直接通过CocoDetection加载
+```
+dataset = datasets.CocoDetection(
+    IMAGES_PATH,
+    ANNOTATIONS_PATH,
+    ...
+)
+```
+
+## 为模型增加新的特征值
+
+数据集中建筑物的Label是100
+```
+num_classes = 101
+in_features = model.roi_heads.box_predictor.cls_score.in_features
+model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+```
+
 ## Reference:
 
 * https://pytorch.org/tutorials/intermediate/torchvision_tutorial.html
