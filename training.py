@@ -4,7 +4,6 @@
 # https://pytorch.org/vision/stable/auto_examples/transforms/plot_transforms_e2e.html#sphx-glr-auto-examples-transforms-plot-transforms-e2e-py
 # https://github.com/crowdAI/crowdai-mapping-challenge-mask-rcnn
 
-import sys
 import pathlib
 import torch
 import torchvision
@@ -17,12 +16,10 @@ from torchvision import datasets, tv_tensors, models
 from engine import train_one_epoch, evaluate
 import utils
 
-# Call `torch.cuda.empty_cache()`.
-torch.cuda.empty_cache()
+# torch.cuda.empty_cache()
 
-# init dataset
 # https://www.aicrowd.com/challenges/mapping-challenge/dataset_files
-ROOT = pathlib.Path('/home/chen/Code/data/crowdai-mapping-challenge/val/')
+ROOT = pathlib.Path('./data/train/')
 IMAGES_PATH = str(ROOT / 'images')
 ANNOTATIONS_PATH = str(ROOT / 'annotation-small.json')
 
@@ -50,19 +47,23 @@ def get_model_instance_segmentation(num_classes):
     return model
 
 
-def get_transform(train):
-    transforms = []
-    if train:
-        transforms.append(v2.RandomHorizontalFlip(0.5))
-    transforms.append(v2.ToDtype(torch.float, scale=True))
-    transforms.append(v2.ToPureTensor())
-    return v2.Compose(transforms)
+# def get_transform(train):
+#     transforms = []
+#     transforms.append(v2.ToImage())
+#     transforms.append(v2.RandomIoUCrop())
+#
+#     if train:
+#         transforms.append(v2.RandomHorizontalFlip(0.5))
+#     transforms.append(v2.SanitizeBoundingBoxes())
+#     transforms.append(v2.ToDtype(torch.float, scale=True))
+#     transforms.append(v2.ToPureTensor())
+#     return v2.Compose(transforms)
 
 transforms = v2.Compose(
     [
         v2.ToImage(),
         v2.RandomPhotometricDistort(p=1),
-        v2.RandomZoomOut(fill={tv_tensors.Image: (123, 117, 104), "others": 0}),
+        #v2.RandomZoomOut(fill={tv_tensors.Image: (123, 117, 104), "others": 0}),
         v2.RandomIoUCrop(),
         v2.RandomHorizontalFlip(p=1),
         v2.SanitizeBoundingBoxes(),
@@ -84,30 +85,28 @@ dataset = datasets.CocoDetection(
     #get_transform(train=True)
 )
 dataset = datasets.wrap_dataset_for_transforms_v2(dataset, target_keys=("boxes", "labels", "masks","image_id"))
-img, target = dataset[0]
-#print(target['labels'])
 
-dataset_test = datasets.CocoDetection(
-    IMAGES_PATH,
-    ANNOTATIONS_PATH,
-    transforms=transforms
-    #get_transform(train=False)
-)
-dataset_test = datasets.wrap_dataset_for_transforms_v2(dataset_test, target_keys=("boxes", "labels", "masks","image_id"))
-#
+# dataset_test = datasets.CocoDetection(
+#     IMAGES_PATH,
+#     ANNOTATIONS_PATH,
+#     transforms=transforms
+#     #get_transform(train=False)
+# )
+# dataset_test = datasets.wrap_dataset_for_transforms_v2(dataset_test, target_keys=("boxes", "labels", "masks","image_id"))
+# #
 
 # # split the dataset in train and test set
 indices = torch.randperm(len(dataset)).tolist()
-dataset = torch.utils.data.Subset(dataset, indices[:-50])
-dataset_test = torch.utils.data.Subset(dataset_test, indices[-50:])
+# dataset = torch.utils.data.Subset(dataset, indices[:-50])
+dataset_train = torch.utils.data.Subset(dataset, indices[:6000])
+dataset_test = torch.utils.data.Subset(dataset, indices[-2000:])
 
 # define training and validation data loaders
 data_loader = torch.utils.data.DataLoader(
-    dataset,
-    batch_size=2,
+    dataset_train,
+    batch_size=1,
     shuffle=True,
     # num_workers=4,
-    # collate_fn=utils.collate_fn
     collate_fn=lambda batch: tuple(zip(*batch)),
 )
 
@@ -116,7 +115,6 @@ data_loader_test = torch.utils.data.DataLoader(
     batch_size=1,
     shuffle=False,
     # num_workers=4,
-    # collate_fn=utils.collate_fn
     collate_fn=lambda batch: tuple(zip(*batch)),
 )
 
@@ -128,14 +126,12 @@ model.to(device)
 
 def train(dataloader, model, optimizer):
     size = len(dataloader.dataset)
+    print('Size:', size)
     model.train()
     for batch, (images, targets) in enumerate(dataloader):
         images = list(image.to(device) for image in images)
         targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
-        #X, y = X.to(device), y.to(device)
 
-        # Compute prediction error
-        #print(images, targets)
         loss_dict = model(images, targets)
         losses = sum(loss for loss in loss_dict.values())
         #loss = loss_fn(pred, y)
@@ -193,13 +189,10 @@ lr_scheduler = torch.optim.lr_scheduler.StepLR(
     gamma=0.1
 )
 
-# let's train it for 5 epochs
-num_epochs = 5
-
 epochs = 5
 for t in range(epochs):
     print(f"Epoch {t+1}\n-------------------------------")
-    #train(data_loader, model, optimizer)
+    train(data_loader, model, optimizer)
     #test(data_loader_test, model)
     evaluate(model, data_loader_test, device=device)
 
