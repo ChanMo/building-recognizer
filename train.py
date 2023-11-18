@@ -161,11 +161,11 @@ optimizer = torch.optim.SGD(
 # and a learning rate scheduler
 lr_scheduler = torch.optim.lr_scheduler.StepLR(
     optimizer,
-    step_size=4, #3
+    step_size=2, #3
     gamma=0.1
 )
 
-epochs = 5
+epochs = 1
 for t in range(epochs):
     print(f"Epoch {t+1}\n-------------------------------")
     train(data_loader_train, model, optimizer)
