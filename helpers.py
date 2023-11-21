@@ -45,20 +45,10 @@ def plot(imgs, row_title=None, **imshow_kwargs):
             #     img = draw_bounding_boxes(img, boxes, labels, colors='red', font='arial.ttf', font_size=18)
 
             if masks is not None:
-                masks = masks.squeeze()
-                keep = torch.amax(masks > 0.6, dim=(1,2))
-                # keep = nms(boxes[keep], target['scores'][keep], 0.2)
-
-                for index, box in enumerate(boxes[keep]):
-                    box_img = F.crop(img, box[1].long(), box[0].long(), (box[3]-box[1]).long(), (box[2]-box[0]).long())
-                    box_img = F.to_pil_image(box_img)
-                    box_img.save(f'outputs/{index}.png')
-
-
-                # boxes = masks_to_boxes(masks[keep])
-                labels = [f"score: {score:.3f}" for score in target["scores"][keep]]
-                # img = draw_segmentation_masks(img, masks > 0.5, colors="green", alpha=.65)
-                img = draw_bounding_boxes(img, boxes[keep], labels, colors='red', font='arial.ttf', font_size=14)
+                boxes = masks_to_boxes(masks)
+                labels = [str(label) for label in target["labels"]]
+                img = draw_segmentation_masks(img, masks > 0.5, colors="green", alpha=.65)
+                img = draw_bounding_boxes(img, boxes, labels, colors='red', font='arial.ttf', font_size=14)
 
             ax = axs[row_idx, col_idx]
             ax.imshow(img.permute(1, 2, 0).numpy(), **imshow_kwargs)

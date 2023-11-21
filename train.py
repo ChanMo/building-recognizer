@@ -11,19 +11,14 @@ import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 from torchvision.transforms import v2
-from torchvision import datasets, tv_tensors, models
+from torchvision import datasets, models
+from torch.utils.tensorboard import SummaryWriter
 
-from engine import train_one_epoch, evaluate
 from coco_eval import CocoEvaluator
 import utils
 
 torch.cuda.empty_cache()
-
-# https://www.aicrowd.com/challenges/mapping-challenge/dataset_files
-ROOT = pathlib.Path('./data/train/')
-IMAGES_PATH = str(ROOT / 'images')
-ANNOTATIONS_PATH = str(ROOT / 'annotation-small.json')
-
+writer = SummaryWriter()
 
 def get_model_instance_segmentation(num_classes):
     model = torchvision.models.detection.maskrcnn_resnet50_fpn(weights="DEFAULT")
@@ -45,16 +40,17 @@ def get_model_instance_segmentation(num_classes):
     return model
 
 
-transforms = v2.Compose(
-    [
-        v2.ToImage(),
-        v2.RandomPhotometricDistort(p=1),
-        v2.RandomIoUCrop(),
-        v2.RandomHorizontalFlip(p=1),
-        v2.SanitizeBoundingBoxes(),
-        v2.ToDtype(torch.float32, scale=True),
-    ]
-)
+def get_transform(train):
+    transforms = [v2.ToImage()]
+    transforms.append(v2.RandomIoUCrop())
+    transforms.append(v2.SanitizeBoundingBoxes())
+    if train:
+        transforms.append(v2.RandomHorizontalFlip(0.5))
+        transforms.append(v2.RandomPhotometricDistort(p=1))
+
+    transforms.append(v2.ToDtype(torch.float32, scale=True))
+    transforms.append(v2.ToPureTensor())
+    return v2.Compose(transforms)
 
 # train on the GPU or on the CPU, if a GPU is not available
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -63,21 +59,21 @@ device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cp
 dataset_train = datasets.CocoDetection(
     './data/train/images/',
     './data/train/annotation-small.json',
-    transforms=transforms
+    transforms=get_transform(True)
 )
 dataset_train = datasets.wrap_dataset_for_transforms_v2(dataset_train, target_keys=("boxes", "labels", "masks","image_id"))
 
 dataset_val = datasets.CocoDetection(
     './data/val/images/',
     './data/val/annotation-small.json',
-    transforms=transforms
+    transforms=get_transform(False)
 )
 dataset_val = datasets.wrap_dataset_for_transforms_v2(dataset_val, target_keys=("boxes", "labels", "masks","image_id"))
 
-# # split the dataset in train and test set
-# indices = torch.randperm(len(dataset)).tolist()
-# dataset_train = torch.utils.data.Subset(dataset, indices[:6000])
-# dataset_test = torch.utils.data.Subset(dataset, indices[-2000:])
+# indices_train = torch.randperm(len(dataset_train)).tolist()
+# dataset_train = torch.utils.data.Subset(dataset_train, indices_train[:1000])
+# indices_val = torch.randperm(len(dataset_val)).tolist()
+# dataset_val = torch.utils.data.Subset(dataset_val, indices_val[-200:]).dataset
 
 # define training and validation data loaders
 data_loader_train = torch.utils.data.DataLoader(
@@ -92,7 +88,6 @@ data_loader_val = torch.utils.data.DataLoader(
     dataset_val,
     batch_size=1,
     shuffle=False,
-    # num_workers=4,
     collate_fn=lambda batch: tuple(zip(*batch)),
 )
 
@@ -123,6 +118,8 @@ def train(dataloader, model, optimizer):
         optimizer.step()
         lr_scheduler.step()
 
+        writer.add_scalar('Train', losses_reduced, batch)
+
         if batch % 100 == 0:
             loss = losses_reduced
             current = (batch + 1) * len(images)
@@ -133,14 +130,14 @@ def test(dataloader, model):
     size = len(dataloader.dataset)
     num_batches = len(dataloader)
     model.eval()
-    test_loss, correct = 0, 0
+    # test_loss, correct = 0, 0
     coco = dataloader.dataset.coco
-    coco_evaluator = CocoEvaluator(coco, 'segm')
+    coco_evaluator = CocoEvaluator(coco, ['bbox', 'segm'])
     with torch.no_grad():
         for images, targets in dataloader:
             images = list(img.to(device) for img in images)
             outputs = model(images)
-            outputs = [{k: v.to(device) for k, v in t.items()} for t in outputs]
+            outputs = [{k: v.to('cpu') for k, v in t.items()} for t in outputs]
 
             res = {target["image_id"]: output for target, output in zip(targets, outputs)}
             coco_evaluator.update(res)
@@ -153,16 +150,28 @@ def test(dataloader, model):
 params = [p for p in model.parameters() if p.requires_grad]
 optimizer = torch.optim.SGD(
     params,
-    lr=0.01,
+    lr=1e-3,
     momentum=0.9,
     weight_decay=0.0005
 )
+# optimizer = torch.optim.Adam(
+#     params,
+#     lr=1e-3,
+# )
+
 
 # and a learning rate scheduler
-lr_scheduler = torch.optim.lr_scheduler.StepLR(
+# lr_scheduler = torch.optim.lr_scheduler.StepLR(
+#     optimizer,
+#     step_size=100, #3
+#     gamma=0.1
+# )
+
+lr_scheduler = torch.optim.lr_scheduler.LinearLR(
     optimizer,
-    step_size=2, #3
-    gamma=0.1
+    start_factor = 1e-3,
+    total_iters = len(dataset_train) - 1,
+    verbose=False
 )
 
 epochs = 1
@@ -171,7 +180,8 @@ for t in range(epochs):
     train(data_loader_train, model, optimizer)
     lr_scheduler.step()
     test(data_loader_val, model)
-    # evaluate(model, data_loader_test, device=device)
+    # torch.save(model.state_dict(), f'maskcrnn_{t}.pth')
 
+writer.close()
 torch.save(model.state_dict(), 'maskcrnn.pth')
 print("Done!")

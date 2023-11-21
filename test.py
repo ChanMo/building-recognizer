@@ -10,7 +10,7 @@ from helpers import plot
 
 
 
-ROOT = pathlib.Path('./data/val/')
+ROOT = pathlib.Path('./data/train/')
 IMAGES_PATH = str(ROOT / 'images')
 ANNOTATIONS_PATH = str(ROOT / 'annotation-small.json')
 
@@ -23,8 +23,8 @@ dataset = datasets.CocoDetection(
     ])
 )
 dataset = datasets.wrap_dataset_for_transforms_v2(dataset, target_keys=("boxes", "labels", "masks"))
-# print(len(dataset))
+indices = torch.randperm(len(dataset)).tolist()
+dataset = torch.utils.data.Subset(dataset, indices[:4])
 
 plot([[dataset[0], dataset[1]], [dataset[2], dataset[3]]])
-# plot([dataset[0]])
 plt.savefig('output.png')
