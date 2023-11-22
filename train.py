@@ -56,20 +56,30 @@ def get_transform(train):
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 # use our dataset and defined transformations
-dataset_train = datasets.CocoDetection(
-    './data/train/images/',
-    './data/train/annotation-small.json',
+dataset = datasets.CocoDetection(
+    '/home/chen/Code/coco-annotator/datasets/Buildings10/',
+    './data/Buildings10-4.json',
     transforms=get_transform(True)
 )
-dataset_train = datasets.wrap_dataset_for_transforms_v2(dataset_train, target_keys=("boxes", "labels", "masks","image_id"))
+dataset = datasets.wrap_dataset_for_transforms_v2(dataset, target_keys=("boxes", "labels", "masks","image_id"))
+indices = torch.randperm(len(dataset)).tolist()
+dataset_train = torch.utils.data.Subset(dataset, indices[:100])
+dataset_val = torch.utils.data.Subset(dataset, indices[100:]).dataset
 
-dataset_val = datasets.CocoDetection(
-    './data/val/images/',
-    './data/val/annotation-small.json',
-    transforms=get_transform(False)
-)
-dataset_val = datasets.wrap_dataset_for_transforms_v2(dataset_val, target_keys=("boxes", "labels", "masks","image_id"))
-
+# dataset_train = datasets.CocoDetection(
+#     './data/train/images/',
+#     './data/train/annotation-small.json',
+#     transforms=get_transform(True)
+# )
+# dataset_train = datasets.wrap_dataset_for_transforms_v2(dataset_train, target_keys=("boxes", "labels", "masks","image_id"))
+#
+# dataset_val = datasets.CocoDetection(
+#     './data/val/images/',
+#     './data/val/annotation-small.json',
+#     transforms=get_transform(False)
+# )
+# dataset_val = datasets.wrap_dataset_for_transforms_v2(dataset_val, target_keys=("boxes", "labels", "masks","image_id"))
+#
 # indices_train = torch.randperm(len(dataset_train)).tolist()
 # dataset_train = torch.utils.data.Subset(dataset_train, indices_train[:1000])
 # indices_val = torch.randperm(len(dataset_val)).tolist()
@@ -94,7 +104,11 @@ data_loader_val = torch.utils.data.DataLoader(
 # get the model using our helper function
 model = get_model_instance_segmentation(101)
 # model = models.get_model("maskrcnn_resnet50_fpn", weights=None, weights_backbone=None, num_classes=101)
+model = torchvision.models.get_model('maskrcnn_resnet50_fpn', num_classes=101)
+model.load_state_dict(torch.load(f'./maskcrnn.pth'))
+
 model.to(device)
+
 
 
 def train(dataloader, model, optimizer):
@@ -174,7 +188,7 @@ lr_scheduler = torch.optim.lr_scheduler.LinearLR(
     verbose=False
 )
 
-epochs = 1
+epochs = 5
 for t in range(epochs):
     print(f"Epoch {t+1}\n-------------------------------")
     train(data_loader_train, model, optimizer)
@@ -183,5 +197,5 @@ for t in range(epochs):
     # torch.save(model.state_dict(), f'maskcrnn_{t}.pth')
 
 writer.close()
-torch.save(model.state_dict(), 'maskcrnn.pth')
+torch.save(model.state_dict(), 'maskrcnn_b2.pth')
 print("Done!")

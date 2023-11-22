@@ -6,6 +6,36 @@ from collections import defaultdict, deque
 
 import torch
 import torch.distributed as dist
+import torchvision
+
+
+def diff_boxes(source, target):
+    # find the difference from a boxes
+    iou = torchvision.ops.box_iou(source, target)
+    if not len(iou):
+        return None
+
+    diffes = []
+    diffes = iou[0]
+    for i,row in enumerate(iou):
+        for j,col in enumerate(row):
+            if col != 0:
+                diffes[j] = 1
+
+    return diffes == 0
+
+def diff_boxes_list(boxes_list):
+    boxes1 = boxes_list[0]
+    boxes2 = boxes_list[1]
+    if not boxes1.shape[0] or not boxes2.shape[0]:
+        return None
+
+    res = [
+        boxes1[diff_boxes(boxes2, boxes1)],
+        boxes2[diff_boxes(boxes1, boxes2)]
+    ]
+    return torch.cat(res)
+
 
 
 class SmoothedValue:
