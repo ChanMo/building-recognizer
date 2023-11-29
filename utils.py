@@ -27,7 +27,11 @@ def diff_boxes(source, target):
 def diff_boxes_list(boxes_list):
     boxes1 = boxes_list[0]
     boxes2 = boxes_list[1]
-    if not boxes1.shape[0] or not boxes2.shape[0]:
+    if not boxes1.shape[0] and boxes2.shape[0]:
+        return boxes2
+    elif boxes1.shape[0] and not boxes2.shape[0]:
+        return boxes1
+    if not boxes1.shape[0] and not boxes2.shape[0]:
         return None
 
     res = [

@@ -6,17 +6,20 @@ from torchvision.io import read_image
 from torchvision.transforms import v2
 from torchvision.transforms.v2 import functional as F
 from torchvision.utils import draw_bounding_boxes, draw_segmentation_masks
+from torchvision.ops import nms
 from utils import diff_boxes_list
 
 zoom = 18
+threshold = 0.68
+model_name = 'maskrcnn_b5'
 source_path = pathlib.Path(f'/home/chen/test_10/{zoom}/')
 source_images = sorted(source_path.glob('**/*.png'))
 
 # rows = len(source_path.iterdir())
 cols = len(list(list(source_path.iterdir())[0].iterdir()))
 
-model = torchvision.models.get_model('maskrcnn_resnet50_fpn', num_classes=101)
-model.load_state_dict(torch.load(f'./maskrcnn_b1.pth'))
+model = torchvision.models.get_model('maskrcnn_resnet50_fpn', num_classes=3)
+model.load_state_dict(torch.load(f'./{model_name}.pth'))
 model.eval()
 
 transforms = v2.Compose([
@@ -41,12 +44,23 @@ with torch.no_grad():
             if len(masks.shape) == 2:
                 masks = masks.unsqueeze(0)
 
-            masks = masks > 0.68
+            # step 1
+            masks = masks > threshold
+
+            # step 2
             mask_areas = torch.sum(masks, dim=(1,2))
-            boxes = output['boxes'][mask_areas > 100]
+            keep = mask_areas > 500
+            boxes = output['boxes'][keep]
+            scores = output['scores'][keep]
+
+            # step 3
             box_areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
-            keep = box_areas < 100*100
-            boxes = boxes[keep]
+            keep = box_areas < 80*80
+
+            # step 4
+            keep2 = nms(boxes[keep], scores[keep], 0.2)
+
+            boxes = boxes[keep][keep2]
             boxes_list.append(boxes)
 
         boxes = diff_boxes_list(boxes_list)

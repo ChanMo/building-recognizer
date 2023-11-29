@@ -31,8 +31,12 @@ class CocoEvaluator:
 
         for iou_type in self.iou_types:
             results = self.prepare(predictions, iou_type)
+            # print('results: ', len(results))
+            # print(results)
             with redirect_stdout(io.StringIO()):
                 coco_dt = COCO.loadRes(self.coco_gt, results) if results else COCO()
+
+            # print(coco_dt.dataset)
             coco_eval = self.coco_eval[iou_type]
 
             coco_eval.cocoDt = coco_dt
@@ -98,7 +102,7 @@ class CocoEvaluator:
             labels = prediction["labels"]
             masks = prediction["masks"]
 
-            masks = masks > 0.5
+            # masks = masks > 0.5 # ?
 
             scores = prediction["scores"].tolist()
             labels = prediction["labels"].tolist()

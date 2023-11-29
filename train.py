@@ -7,6 +7,7 @@
 import pathlib
 import torch
 import torchvision
+import numpy as np
 
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
@@ -15,7 +16,7 @@ from torchvision import datasets, models
 from torch.utils.tensorboard import SummaryWriter
 
 from coco_eval import CocoEvaluator
-import utils
+from coco_utils import convert_to_coco_api
 
 torch.cuda.empty_cache()
 writer = SummaryWriter()
@@ -42,9 +43,9 @@ def get_model_instance_segmentation(num_classes):
 
 def get_transform(train):
     transforms = [v2.ToImage()]
-    transforms.append(v2.RandomIoUCrop())
-    transforms.append(v2.SanitizeBoundingBoxes())
     if train:
+        transforms.append(v2.RandomIoUCrop())
+        transforms.append(v2.SanitizeBoundingBoxes())
         transforms.append(v2.RandomHorizontalFlip(0.5))
         transforms.append(v2.RandomPhotometricDistort(p=1))
 
@@ -56,29 +57,31 @@ def get_transform(train):
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 # use our dataset and defined transformations
-dataset = datasets.CocoDetection(
-    '/home/chen/Code/coco-annotator/datasets/Buildings10/',
-    './data/Buildings10-4.json',
-    transforms=get_transform(True)
-)
-dataset = datasets.wrap_dataset_for_transforms_v2(dataset, target_keys=("boxes", "labels", "masks","image_id"))
-indices = torch.randperm(len(dataset)).tolist()
-dataset_train = torch.utils.data.Subset(dataset, indices[:100])
-dataset_val = torch.utils.data.Subset(dataset, indices[100:]).dataset
-
-# dataset_train = datasets.CocoDetection(
-#     './data/train/images/',
-#     './data/train/annotation-small.json',
+# dataset = datasets.CocoDetection(
+#     '/home/chen/Code/coco-annotator/datasets/Buildings10/',
+#     './data/Buildings10-8.json',
 #     transforms=get_transform(True)
 # )
-# dataset_train = datasets.wrap_dataset_for_transforms_v2(dataset_train, target_keys=("boxes", "labels", "masks","image_id"))
-#
-# dataset_val = datasets.CocoDetection(
-#     './data/val/images/',
-#     './data/val/annotation-small.json',
-#     transforms=get_transform(False)
-# )
-# dataset_val = datasets.wrap_dataset_for_transforms_v2(dataset_val, target_keys=("boxes", "labels", "masks","image_id"))
+# dataset = datasets.wrap_dataset_for_transforms_v2(dataset, target_keys=("boxes", "labels", "masks","image_id", "area", "iscrowd"))
+# indices = torch.randperm(len(dataset)).tolist()
+# offset = int(len(indices)*0.7)
+# print(f'Total: {len(indices)}, Train: {offset}, Test: {len(indices)-offset}')
+# dataset_train = torch.utils.data.Subset(dataset, indices[:offset])
+# dataset_val = torch.utils.data.Subset(dataset, indices[offset:])
+
+dataset_train = datasets.CocoDetection(
+    './data/train/images/',
+    './data/train/annotation-small.json',
+    transforms=get_transform(True)
+)
+dataset_train = datasets.wrap_dataset_for_transforms_v2(dataset_train, target_keys=("boxes", "labels", "masks","image_id", "area", "iscrowd"))
+
+dataset_val = datasets.CocoDetection(
+    './data/val/images/',
+    './data/val/annotation-small.json',
+    transforms=get_transform(False)
+)
+dataset_val = datasets.wrap_dataset_for_transforms_v2(dataset_val, target_keys=("boxes", "labels", "masks","image_id", "area", "iscrowd"))
 #
 # indices_train = torch.randperm(len(dataset_train)).tolist()
 # dataset_train = torch.utils.data.Subset(dataset_train, indices_train[:1000])
@@ -90,7 +93,6 @@ data_loader_train = torch.utils.data.DataLoader(
     dataset_train,
     batch_size=1,
     shuffle=True,
-    # num_workers=4,
     collate_fn=lambda batch: tuple(zip(*batch)),
 )
 
@@ -102,16 +104,15 @@ data_loader_val = torch.utils.data.DataLoader(
 )
 
 # get the model using our helper function
-model = get_model_instance_segmentation(101)
+model = get_model_instance_segmentation(101) # 3
 # model = models.get_model("maskrcnn_resnet50_fpn", weights=None, weights_backbone=None, num_classes=101)
-model = torchvision.models.get_model('maskrcnn_resnet50_fpn', num_classes=101)
-model.load_state_dict(torch.load(f'./maskcrnn.pth'))
+# model = torchvision.models.get_model('maskrcnn_resnet50_fpn', num_classes=101)
+# model.load_state_dict(torch.load(f'./maskrcnn_b1.pth'))
 
 model.to(device)
 
 
-
-def train(dataloader, model, optimizer):
+def train(dataloader, model, optimizer, epoch):
     size = len(dataloader.dataset)
     model.train()
     for batch, (images, targets) in enumerate(dataloader):
@@ -119,12 +120,8 @@ def train(dataloader, model, optimizer):
         targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
 
         loss_dict = model(images, targets)
-
-        # loss_fn
         losses = sum(loss for loss in loss_dict.values())
-        loss_dict_reduced = utils.reduce_dict(loss_dict)
-        losses_reduced = sum(loss for loss in loss_dict_reduced.values())
-        loss_value = losses_reduced.item()
+        loss_value = losses.item()
 
         # Backpropagation
         optimizer.zero_grad()
@@ -132,32 +129,51 @@ def train(dataloader, model, optimizer):
         optimizer.step()
         lr_scheduler.step()
 
-        writer.add_scalar('Train', losses_reduced, batch)
+        # writer.add_scalar('Train', losses, batch + (epoch * size))
+        writer.add_scalar('Train', losses, batch)
 
         if batch % 100 == 0:
-            loss = losses_reduced
+            loss = losses
             current = (batch + 1) * len(images)
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
 
-def test(dataloader, model):
+def test(dataloader, model, epoch):
     size = len(dataloader.dataset)
     num_batches = len(dataloader)
     model.eval()
-    # test_loss, correct = 0, 0
-    coco = dataloader.dataset.coco
-    coco_evaluator = CocoEvaluator(coco, ['bbox', 'segm'])
+    # coco = convert_to_coco_api(dataloader.dataset.dataset)
+    coco = convert_to_coco_api(dataloader.dataset)
+    coco_evaluator = CocoEvaluator(coco, ['segm', 'bbox']) # segm
     with torch.no_grad():
         for images, targets in dataloader:
             images = list(img.to(device) for img in images)
             outputs = model(images)
             outputs = [{k: v.to('cpu') for k, v in t.items()} for t in outputs]
-
             res = {target["image_id"]: output for target, output in zip(targets, outputs)}
             coco_evaluator.update(res)
 
     coco_evaluator.accumulate()
     coco_evaluator.summarize()
+
+    coco_eval = coco_evaluator.coco_eval['bbox']
+    p = coco_eval.params
+    aind = [i for i, aRng in enumerate(p.areaRngLbl) if aRng == 'all']
+    mind = [i for i, mDet in enumerate(p.maxDets) if mDet == 100]
+    ap = coco_eval.eval['precision']
+    ar = coco_eval.eval['recall']
+    if len(ap[ap > -1]) == 0:
+        ap_res = -1
+    else:
+        ap_res = np.mean(ap[ap > -1])
+
+    if len(ar[ar > -1]) == 0:
+        ar_res = -1
+    else:
+        ar_res = np.mean(ar[ar > -1])
+
+    writer.add_scalar('Val/AP', ap_res, epoch)
+    writer.add_scalar('Val/AR', ar_res, epoch)
 
 
 # construct an optimizer
@@ -188,14 +204,14 @@ lr_scheduler = torch.optim.lr_scheduler.LinearLR(
     verbose=False
 )
 
-epochs = 5
+epochs = 20
 for t in range(epochs):
     print(f"Epoch {t+1}\n-------------------------------")
-    train(data_loader_train, model, optimizer)
+    train(data_loader_train, model, optimizer, t)
     lr_scheduler.step()
-    test(data_loader_val, model)
+    test(data_loader_val, model, t)
     # torch.save(model.state_dict(), f'maskcrnn_{t}.pth')
 
 writer.close()
-torch.save(model.state_dict(), 'maskrcnn_b2.pth')
+torch.save(model.state_dict(), 'maskrcnn.pth')
 print("Done!")
